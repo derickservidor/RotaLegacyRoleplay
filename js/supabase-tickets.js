@@ -21,6 +21,9 @@
   function isConfigured() {
     return /^https:\/\//i.test(url) && !!key && !/COLE_AQUI|SUA_CHAVE/i.test(key);
   }
+  function isAdmin() {
+    return !!(current && current.access_token === "admin" && adminToken);
+  }
   function apiHeaders(accessToken, extra) {
     var result = { apikey: key, "Content-Type": "application/json" };
     if (accessToken) result.Authorization = "Bearer " + accessToken;
@@ -198,7 +201,7 @@
   window.ROTA_TICKETS = {
     isConfigured: isConfigured,
     current: function () { return current; },
-    isAdmin: function () { return !!(current && current.access_token === "admin" && adminToken); },
+    isAdmin: isAdmin,
     restore: validSession,
     signIn: signIn,
     adminLogin: adminLogin,
