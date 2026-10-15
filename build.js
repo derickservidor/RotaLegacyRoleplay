@@ -25,6 +25,9 @@ const publicConfig = {
 };
 fs.writeFileSync(
   path.join(out, "js", "supabase-config.js"),
-  "// Gerado pelo build do Netlify. Contém somente configurações públicas.\nwindow.ROTA_SUPABASE_CONFIG = " + JSON.stringify(publicConfig, null, 2) + ";\n"
+  "// Gerado no build. Contém somente configurações públicas.\nwindow.ROTA_SUPABASE_CONFIG = " + JSON.stringify(publicConfig, null, 2) + ";\n"
 );
+// Cloudflare Pages Functions serve only the API routes; static assets stay
+// on the CDN and do not invoke a Function.
+fs.writeFileSync(path.join(out, "_routes.json"), JSON.stringify({ version: 1, include: ["/api/*"], exclude: [] }, null, 2) + "\n");
 console.log("Static portal copied to dist/.");

@@ -42,7 +42,7 @@
   async function functionCall(action, values, admin) {
     var headers = { "Content-Type": "application/json" };
     if (admin && adminToken) headers["x-rota-admin-session"] = adminToken;
-    var response = await fetch("/.netlify/functions/police-access", {
+    var response = await fetch("/api/police-access", {
       method: "POST", headers: headers, body: JSON.stringify(Object.assign({ action: action }, values || {}))
     });
     return responseData(response);
@@ -103,7 +103,7 @@
     } catch (_) { return false; }
   }
   async function signIn(name, token) {
-    if (!isConfigured()) throw new Error("Configure a URL e a chave publishable em js/supabase-config.js. Publique também a função policial no Netlify.");
+    if (!isConfigured()) throw new Error("Configure a URL e a chave publishable em js/supabase-config.js e publique as funções do portal.");
     var body = await functionCall("officer-login", { name: String(name || "").trim(), token: String(token || "") });
     var session = body.session;
     if (!session || !session.access_token || !(await policeMembership(session))) throw new Error("A conta não está ativa. Peça aprovação à administração da ROTA.");
