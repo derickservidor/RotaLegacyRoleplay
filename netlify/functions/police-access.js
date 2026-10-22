@@ -118,7 +118,7 @@ async function officerLogin(input) {
 async function adminLogin(input) {
   // Fail before issuing an admin session if the backing project is incomplete.
   config();
-  const expectedUser = String(process.env.ROTA_ADMIN_USERNAME || "derickadm");
+  const expectedUser = String(process.env.ROTA_ADMIN_USERNAME || "");
   const expectedPassword = String(process.env.ROTA_ADMIN_PASSWORD || "");
   if (expectedPassword.length < 12) throw Object.assign(new Error("Defina uma senha administrativa forte na variável ROTA_ADMIN_PASSWORD do Netlify."), { status: 503 });
   const submittedUser = clean(input.username, 60);

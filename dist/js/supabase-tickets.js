@@ -21,6 +21,9 @@
   function isConfigured() {
     return /^https:\/\//i.test(url) && !!key && !/COLE_AQUI|SUA_CHAVE/i.test(key);
   }
+  function isAdmin() {
+    return !!(current && current.access_token === "admin" && adminToken);
+  }
   function apiHeaders(accessToken, extra) {
     var result = { apikey: key, "Content-Type": "application/json" };
     if (accessToken) result.Authorization = "Bearer " + accessToken;
@@ -39,7 +42,7 @@
   async function functionCall(action, values, admin) {
     var headers = { "Content-Type": "application/json" };
     if (admin && adminToken) headers["x-rota-admin-session"] = adminToken;
-    var response = await fetch("/.netlify/functions/police-access", {
+    var response = await fetch("/api/police-access", {
       method: "POST", headers: headers, body: JSON.stringify(Object.assign({ action: action }, values || {}))
     });
     return responseData(response);
@@ -100,7 +103,7 @@
     } catch (_) { return false; }
   }
   async function signIn(name, token) {
-    if (!isConfigured()) throw new Error("Configure a URL e a chave publishable em js/supabase-config.js. Publique também a função policial no Netlify.");
+    if (!isConfigured()) throw new Error("Configure a URL e a chave publishable em js/supabase-config.js e publique as funções do portal.");
     var body = await functionCall("officer-login", { name: String(name || "").trim(), token: String(token || "") });
     var session = body.session;
     if (!session || !session.access_token || !(await policeMembership(session))) throw new Error("A conta não está ativa. Peça aprovação à administração da ROTA.");
@@ -124,6 +127,27 @@
   async function adminAction(action, values) {
     if (!adminToken) throw new Error("Sua sessão administrativa expirou. Entre novamente.");
     return functionCall(action, values, true);
+  }
+  async function applicationCall(action, values) {
+    var response = await fetch("/api/edital-applications", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ action: action }, values || {}))
+    });
+    var body = await response.json().catch(function () { return {}; });
+    if (!response.ok) {
+      var error = new Error(body.error || "Não foi possível processar a candidatura.");
+      error.status = response.status;
+      error.availableAt = body.availableAt || null;
+      error.remainingSeconds = body.remainingSeconds || 0;
+      throw error;
+    }
+    return body;
+  }
+  function checkApplicationCooldown(playerId) {
+    return applicationCall("check", { playerId: String(playerId || "").trim() });
+  }
+  function submitApplication(details) {
+    return applicationCall("submit", details || {});
   }
   async function authedFetch(path, options) {
     if (current && current.access_token === "admin") throw new Error("A administração acessa este módulo pelo painel seguro.");
@@ -195,10 +219,87 @@
     return rowToTicket(rows[0], kind);
   }
 
+  async function protectedRequest(endpoint, method, payload) {
+    var headers = { "Content-Type": "application/json" };
+    if (isAdmin() && adminToken) headers["x-rota-admin-session"] = adminToken;
+    else if (current && current.access_token && current.access_token !== "admin") headers.Authorization = "Bearer " + current.access_token;
+    var response = await fetch(endpoint, { method: method, headers: headers, body: payload ? JSON.stringify(payload) : undefined });
+    var body = await response.json().catch(function () { return {}; });
+    if (!response.ok) throw new Error(body.error || "Falha ao acessar o servidor.");
+    return body;
+  }
+  async function optimizeBlacklistPhoto(file) {
+    if (!file || !/^image\/(?:jpeg|png|webp)$/i.test(file.type || "")) throw new Error("Escolha uma imagem JPG, PNG ou WebP.");
+    if (file.size > 12 * 1024 * 1024) throw new Error("A foto original precisa ter menos de 12 MB.");
+    if (typeof window.createImageBitmap !== "function") {
+      if (file.size > 3 * 1024 * 1024) throw new Error("Este navegador não consegue otimizar a foto. Use uma imagem de até 3 MB.");
+      return file;
+    }
+    var bitmap;
+    try { bitmap = await window.createImageBitmap(file); }
+    catch (_) { throw new Error("Não foi possível abrir essa imagem. Escolha outra foto."); }
+    var scale = Math.min(1, 1400 / Math.max(bitmap.width, bitmap.height));
+    var canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    var context = canvas.getContext("2d");
+    context.fillStyle = "#111820";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    var blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/jpeg", 0.82); });
+    if (!blob || blob.size > 3 * 1024 * 1024) throw new Error("A foto continuou muito grande após otimização. Escolha uma imagem menor.");
+    return new File([blob], "rota-blacklist-" + Date.now() + ".jpg", { type: "image/jpeg" });
+  }
+  async function uploadBlacklistPhoto(file) {
+    if (!isAdmin() || !adminToken) throw new Error("Somente o administrador pode enviar fotos para a blacklist.");
+    var optimized = await optimizeBlacklistPhoto(file), form = new FormData();
+    form.append("photo", optimized);
+    var headers = { "x-rota-admin-session": adminToken };
+    var response = await fetch("/api/blacklist-photo", { method: "POST", headers: headers, body: form });
+    var body = await response.json().catch(function () { return {}; });
+    if (!response.ok) throw new Error(body.error || "Falha ao enviar a foto.");
+    return body;
+  }
+  async function listBlacklist() { var result = await protectedRequest("/api/blacklist", "GET"); return result.rows || []; }
+  async function addBlacklist(details) { return protectedRequest("/api/blacklist", "POST", details); }
+  async function removeBlacklist(id) { return protectedRequest("/api/blacklist", "DELETE", { id: id }); }
+  async function listArrests() { var result = await protectedRequest("/api/arrests", "GET"); return result.rows || []; }
+  async function createArrest(record) { return protectedRequest("/api/arrests", "POST", record); }
+  async function notifyArrest(record) { return protectedRequest("/api/arrest-notify", "POST", record); }
+  async function uploadArrestPhoto(file) {
+    if (!current || (!isAdmin() && !current.access_token)) throw new Error("Entre como policial para anexar as fotos do registro.");
+    var optimized = await optimizeBlacklistPhoto(file), form = new FormData(); form.append("photo", optimized);
+    var headers = {};
+    if (isAdmin() && adminToken) headers["x-rota-admin-session"] = adminToken;
+    else if (current.access_token) headers.Authorization = "Bearer " + current.access_token;
+    var response = await fetch("/api/arrest-photo", { method: "POST", headers: headers, body: form });
+    var body = await response.json().catch(function () { return {}; });
+    if (!response.ok) throw new Error(body.error || "Falha ao enviar a foto da apreensão.");
+    return body;
+  }
+  async function removeArrest(id) { return protectedRequest("/api/arrests", "DELETE", { id: id }); }
+  async function listRoster() {
+    var response = await fetch("/api/roster", { method: "GET", headers: { Accept: "application/json" } });
+    var body = await response.json().catch(function () { return {}; });
+    if (!response.ok) throw new Error(body.error || "Não foi possível carregar o efetivo.");
+    return body.rows || [];
+  }
+  async function saveRoster(record) { return protectedRequest("/api/roster", "POST", record); }
+  async function uploadRosterPhoto(file) {
+    if (!isAdmin() || !adminToken) throw new Error("Somente a administração pode enviar fotos do efetivo.");
+    var optimized = await optimizeBlacklistPhoto(file), form = new FormData();
+    form.append("photo", optimized);
+    var response = await fetch("/api/roster-photo", { method: "POST", headers: { "x-rota-admin-session": adminToken }, body: form });
+    var body = await response.json().catch(function () { return {}; });
+    if (!response.ok) throw new Error(body.error || "Falha ao enviar a foto.");
+    return body;
+  }
+
   window.ROTA_TICKETS = {
     isConfigured: isConfigured,
     current: function () { return current; },
-    isAdmin: function () { return !!(current && current.access_token === "admin" && adminToken); },
+    isAdmin: isAdmin,
     restore: validSession,
     signIn: signIn,
     adminLogin: adminLogin,
@@ -209,6 +310,20 @@
     submit: submit,
     getCitizenStatus: getCitizenStatus,
     list: list,
-    decide: decide
+    decide: decide,
+    checkApplicationCooldown: checkApplicationCooldown,
+    submitApplication: submitApplication,
+    listBlacklist: listBlacklist,
+    uploadBlacklistPhoto: uploadBlacklistPhoto,
+    addBlacklist: addBlacklist,
+    removeBlacklist: removeBlacklist,
+    listArrests: listArrests,
+    createArrest: createArrest,
+    notifyArrest: notifyArrest,
+    uploadArrestPhoto: uploadArrestPhoto,
+    removeArrest: removeArrest,
+    listRoster: listRoster,
+    saveRoster: saveRoster,
+    uploadRosterPhoto: uploadRosterPhoto
   };
 })();

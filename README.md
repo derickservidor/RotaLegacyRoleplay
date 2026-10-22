@@ -6,6 +6,8 @@ Portal comunitário fictício para a unidade ROTA no servidor Legacy Roleplay. O
 
 O projeto pode continuar publicado no Netlify ou ser implantado no Cloudflare Pages. As funções do Cloudflare ficam na pasta `functions/`, na raiz do projeto; os arquivos estáticos compilados ficam em `dist/`.
 
+**Importante:** extraia o ZIP completo e publique a partir da raiz do projeto, mantendo `functions/` ao lado de `build.js`. Não publique somente `dist/` nem abra `index.html` direto do arquivo: sem as Functions e as variáveis do Supabase, o efetivo, a blacklist e os cadastros não conseguem carregar ou salvar dados.
+
 ### Cloudflare Pages
 
 1. Envie estes arquivos atualizados ao GitHub e crie um projeto Pages conectado ao repositório e à branch `main`. Use integração Git; o envio direto de arquivos pelo painel não publica as Pages Functions.
@@ -20,13 +22,17 @@ O build cria `dist/_routes.json` para encaminhar somente `/api/*` às Pages Func
 
 ### Netlify
 
-O `netlify.toml` define `node build.js`, publica `dist` e usa `netlify/functions`. Enviar uma alteração à branch conectada ao Netlify inicia um deploy automático. As novas rotas `/api/police-access` e `/api/arrest-notify` também são encaminhadas às funções Netlify.
+O `netlify.toml` define `node build.js`, publica `dist` e usa `netlify/functions`. Enviar uma alteração à branch conectada ao Netlify inicia um deploy automático. As rotas `/api/police-access` e `/api/arrest-notify` são encaminhadas às funções Netlify. As rotas `/api/blacklist` e `/api/arrests` usam Pages Functions do Cloudflare.
 
 ## Configurar o Supabase
 
 1. No Supabase, abra **SQL Editor** e execute todo o arquivo `supabase/schema.sql`.
-2. Em **Project Settings → API Keys**, copie a URL do projeto e a chave **publishable** (ou `anon` legado). Nunca use a chave `secret`/`service_role` no navegador.
-3. Na hospedagem, cadastre:
+2. Para habilitar a consulta pública e as fotos da blacklist, execute também `supabase/blacklist.sql` no SQL Editor. Esse script cria/atualiza a tabela, concede leitura pública somente dos campos exibidos e cria o bucket público das imagens. Cidadãos e policiais podem consultar; somente uma sessão de administrador pode incluir ou remover registros.
+3. Cada registro público exibe a foto do personagem, nome e Passaporte Legacy. Cadastre somente personagens e fatos fictícios do roleplay. As fotos ficam acessíveis publicamente no bucket `rota-blacklist-photos`.
+4. Para o livro compartilhado de prisões e as fotos de apreensão, execute (ou execute novamente) `supabase/arrests.sql` antes de publicar. O script atualiza as colunas de armas e imagens e cria o bucket privado `rota-arrest-photos`; listar, registrar, anexar imagens e remover exigem uma conta policial autorizada. As fotos recebem links temporários e só aparecem na área policial.
+
+5. Em **Project Settings → API Keys**, copie a URL do projeto e a chave **publishable** (ou `anon` legado). Nunca use a chave `secret`/`service_role` no navegador.
+6. Na hospedagem, cadastre:
 
    **Variáveis comuns:**
    - `SUPABASE_URL`: URL do projeto Supabase; precisa estar disponível no build e nas Functions.
@@ -41,33 +47,27 @@ O `netlify.toml` define `node build.js`, publica `dist` e usa `netlify/functions
 
    No Netlify, configure em **Project configuration → Environment variables**. No Cloudflare, configure em **Workers & Pages → seu Pages project → Settings → Variables and Secrets**. Não coloque os segredos em arquivos do site, GitHub ou navegador. No Cloudflare, escolha **Encrypt** para cada segredo e salve os valores antes de fazer o deploy.
 
-4. `build.js` injeta somente a URL e a chave pública no arquivo `dist/js/supabase-config.js`. Os segredos administrativos e a chave privada do Supabase nunca são enviados ao navegador.
+7. `build.js` injeta somente a URL e a chave pública no arquivo `dist/js/supabase-config.js`. Os segredos administrativos e a chave privada do Supabase nunca são enviados ao navegador.
 
-## Login policial e tokens
+## Acesso policial por token e efetivo
 
-- O policial abre **Login → Solicitar acesso** e informa somente seu nome.
-- O administrador abre **Login → Administrador**, entra com as credenciais configuradas no servidor e analisa **Administração → Solicitações**.
-- Ao aprovar, o servidor cria a conta Supabase e mostra um token aleatório uma única vez. O administrador copia e envia o token ao policial por mensagem privada.
-- No login policial, o integrante informa o mesmo nome aprovado e o token. O token continua válido até a administração emitir outro.
-- Se esquecer, o policial pede troca de token usando o nome. O administrador aprova o pedido ou troca diretamente pela aba **Contas e tokens**. O token antigo deixa de funcionar para novos logins.
-- A administração pode desativar e reativar contas, consultar solicitações e acompanhar os logins registrados.
-- A página consulta logins a cada 15 segundos enquanto a sessão administrativa está aberta. Para alertas, permita notificações do navegador. O navegador precisa ficar aberto e conectado; não é um alerta push quando o administrador estiver offline.
-
-O nome deve ser digitado da mesma forma nos pedidos e no login. Solicitações públicas não são aprovadas automaticamente. Confira a identidade do integrante pelo canal oficial do servidor antes de entregar o token.
-
+- Execute `supabase/roster-shared-login.sql` no SQL Editor do Supabase para criar o quadro público do efetivo e o bucket de fotos. O portal usa acesso policial individual por token; o login coletivo legado não é oferecido nem aceito pela API.
+- O policial solicita um token informando o nome aprovado e escolhe entre primeiro acesso e troca de token. Ambos os pedidos ficam aguardando a aprovação em **Administração → Solicitações**. Só após a aprovação o sistema gera um token para o administrador copiar e entregar ao policial por canal privado.
+- Em **Administração → Acesso policial**, o administrador pode reativar contas individuais antigas, desativar integrantes e emitir novos tokens. Contas antigas desligadas não são reativadas automaticamente.
+- A entrada policial usa nome aprovado e token individual. A entrada administrativa usa credenciais próprias e abre o painel de administração, com acesso às áreas públicas e operacionais.
+- Em **Administração → Efetivo ROTA**, cadastre QRA, nome completo, patente/cargo, Passaporte Legacy, admissão, nascimento, situação e foto. A lista pública **Efetivo** mostra os integrantes e abre a carteirinha funcional.
+- Apenas a sessão administrativa pode aprovar pedidos, gerir contas e tokens, cadastrar ou editar o efetivo e enviar fotos. A consulta pública mostra os dados funcionais e a foto da carteirinha.
 ## Tickets do cidadão
 
 Os pedidos de B.O. e Ouvidoria são armazenados no Supabase e podem ser enviados em um aparelho e analisados em outro. A equipe policial precisa entrar com uma conta aprovada para ler e decidir tickets. O cidadão consulta o status no navegador em que enviou o pedido, usando o identificador privado salvo localmente.
 
-## Integração de prisões com Discord
+## Editais e candidaturas
 
-O formulário de prisão chama `/api/arrest-notify`. Para enviar registros a um canal, crie um webhook no Discord e cadastre sua URL como `DISCORD_WEBHOOK_URL` nas variáveis/segredos do servidor. Nunca salve o webhook nos arquivos públicos.
+- O mural e a ficha de inscrição são públicos; o candidato não precisa fazer login no portal policial.
+- A ficha pede nome completo, RG no servidor e as dez respostas do questionário do processo seletivo. Todos os campos são obrigatórios. O ID do personagem é normalizado no servidor e controla o intervalo de 48 horas entre inscrições, mesmo em outro edital, navegador ou aparelho.
+- As fichas são gravadas no Supabase pelo endpoint seguro `/api/edital-applications`; os dados não são enviados diretamente do navegador com uma chave administrativa.
+- A equipe autorizada consulta as fichas em **Administração → Candidaturas**. O ID é usado para controlar o prazo; a lista completa só fica disponível na sessão administrativa.
+- Para ativar ou atualizar o fluxo, execute `supabase/edital-applications.sql` no SQL Editor do Supabase antes de publicar o novo código. O script atualiza a tabela e a função de envio e pode ser executado sobre a versão anterior. A função usa as variáveis de servidor `SUPABASE_URL` e `SUPABASE_SECRET_KEY` (ou a chave legada `SUPABASE_SERVICE_ROLE_KEY`) já cadastradas no Cloudflare.
+- `Minhas inscrições` mostra as candidaturas deste navegador. A regra de 48 horas e a gravação principal ficam no servidor, não dependem dessa lista local.
 
-## Conteúdo do portal
-
-- Gestão do cidadão, comunicados, formulário de B.O. e tickets de Ouvidoria.
-- Painel policial, registros fictícios de prisão, operações, efetivo, recrutamento e procurados RP.
-- Código penal RP com calculadora de penas e regras de não-somatória em roubos.
-- Página da Cidade Legacy com links para Discord, diretrizes e Instagram.
-
-As informações operacionais que ainda usam armazenamento do navegador não são compartilhadas entre usuários. O portal é exclusivamente para roleplay e não tem validade oficial.
+O edital incluído no pacote é demonstrativo. Atualize título, critérios e prazos para o processo seletivo real antes de divulgá-lo.

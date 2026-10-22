@@ -203,19 +203,39 @@ async function adminLogin(env, input) {
   return { adminToken: await signAdmin(env, { role: "admin", iat: now, exp: now + SESSION_SECONDS }) };
 }
 
-async function dashboard(env) {
-  const requests = await db(env, "access_requests?select=id,display_name,normalized_name,request_type,status,created_at&order=created_at.desc&limit=150", "GET");
-  const officers = await db(env, "police_users?select=user_id,display_name,normalized_name,role,enabled,created_at&order=display_name.asc&limit=300", "GET");
-  const logins = await db(env, "login_events?select=id,user_id,display_name,role,logged_at&order=logged_at.desc&limit=40", "GET");
-  return { requests: requests || [], officers: officers || [], logins: logins || [] };
+async function dashboardRows(env, key, path, issues) {
+  try {
+    return await db(env, path, "GET") || [];
+  } catch (_) {
+    issues.push(key);
+    return [];
+  }
 }
 
-async function issueForOfficer(env, userId) {
+async function dashboard(env) {
+  const issues = [];
+  const [requests, officers, logins, boTickets, ouvidoriaTickets, applications, arrests, blacklist, roster] = await Promise.all([
+    dashboardRows(env, "solicitações de acesso", "access_requests?select=id,display_name,normalized_name,request_type,status,created_at&order=created_at.desc&limit=150", issues),
+    dashboardRows(env, "contas policiais", "police_users?select=user_id,display_name,normalized_name,role,enabled,created_at&order=display_name.asc&limit=300", issues),
+    dashboardRows(env, "histórico de acesso", "login_events?select=id,user_id,display_name,role,logged_at&order=logged_at.desc&limit=40", issues),
+    dashboardRows(env, "B.O.", "bo_tickets?select=id,public_id,player,legacy_name,category,status,created_at&order=created_at.desc&limit=100", issues),
+    dashboardRows(env, "Ouvidoria", "ouvidoria_tickets?select=id,public_id,player,legacy_name,category,status,created_at&order=created_at.desc&limit=100", issues),
+    dashboardRows(env, "candidaturas", "edital_applications?select=id,edital_title,full_name,candidate_name,status,created_at&order=created_at.desc&limit=100", issues),
+    dashboardRows(env, "registros de prisão", "arrest_records?select=id,character_name,player_id,officer,created_at&is_active=eq.true&order=created_at.desc&limit=30", issues),
+    dashboardRows(env, "blacklist", "rota_blacklist?select=id,character_name,player_id,created_at&is_active=eq.true&order=created_at.desc&limit=100", issues),
+    dashboardRows(env, "efetivo ROTA", "rota_roster?select=id,qra,full_name,rank,passport,admitted_on,birth_date,status,photo_path,photo_url,created_at,updated_at&order=qra.asc&limit=500", issues),
+  ]);
+
+  return { requests, officers, logins, boTickets, ouvidoriaTickets, applications, arrests, blacklist, roster, dataIssues: issues };
+}
+
+async function issueForOfficer(env, userId, reactivate) {
   const rows = await db(env, "police_users?select=user_id,display_name,normalized_name,role,enabled&user_id=eq." + encodeURIComponent(userId) + "&limit=1", "GET");
   if (!Array.isArray(rows) || !rows.length) throw fail("Integrante não encontrado.", 404);
-  if (!rows[0].enabled) throw fail("Esta conta está desativada. Reative antes de trocar o token.", 409);
+  if (!rows[0].enabled && !reactivate) throw fail("Esta conta está desativada. Reative antes de trocar o token.", 409);
   const token = randomToken();
   await callSupabase(env, "/auth/v1/admin/users/" + encodeURIComponent(userId), { method: "PUT", body: JSON.stringify({ password: token }) });
+  if (!rows[0].enabled) await db(env, "police_users?user_id=eq." + encodeURIComponent(userId), "PATCH", { enabled: true }, "return=minimal");
   await db(env, "access_requests?normalized_name=eq." + encodeURIComponent(rows[0].normalized_name) + "&request_type=eq.troca_token&status=eq.Pendente", "PATCH", { status: "Aprovado", decided_at: new Date().toISOString() }, "return=minimal");
   return { ok: true, displayName: rows[0].display_name, token };
 }
@@ -224,7 +244,10 @@ async function handleAdmin(request, env, input) {
   await requireAdmin(request, env);
   if (input.action === "admin-session") return { valid: true };
   if (input.action === "admin-dashboard") return dashboard(env);
-  if (input.action === "tickets-list") {
+  if (input.action === "edital-applications-list") {
+    const rows = await db(env, "edital_applications?select=id,edital_id,edital_title,full_name,server_rg,candidate_name,player_id,real_age,rp_experience,police_experience,roleplay_definition,metagaming_definition,powergaming_definition,why_pmce,character_story,status,created_at&order=created_at.desc&limit=200", "GET");
+    return { rows: rows || [] };
+  }  if (input.action === "tickets-list") {
     const table = getTicketTable(input.kind);
     const rows = await db(env, table + "?select=id,public_id,discord,player,legacy_name,reason,category,detail,status,created_at,decision_at&order=created_at.desc&limit=300", "GET");
     return { rows: rows || [] };
@@ -255,15 +278,18 @@ async function handleAdmin(request, env, input) {
         await db(env, "police_users", "POST", { user_id: created.id, display_name: requestRow.display_name, normalized_name: requestRow.normalized_name, login_email: syntheticEmail(requestRow.normalized_name), role: "policial", enabled: true }, "return=minimal");
         await db(env, "access_requests?id=eq." + encodeURIComponent(id), "PATCH", { status: "Aprovado", decided_at: new Date().toISOString() }, "return=minimal");
       } catch (error) {
-        if (created && created.id) await callSupabase(env, "/auth/v1/admin/users/" + encodeURIComponent(created.id), { method: "DELETE" }).catch(() => {});
+        if (created && created.id) {
+          await db(env, "police_users?user_id=eq." + encodeURIComponent(created.id), "DELETE", undefined, "return=minimal").catch(() => {});
+          await callSupabase(env, "/auth/v1/admin/users/" + encodeURIComponent(created.id), { method: "DELETE" }).catch(() => {});
+        }
         throw error;
       }
       return { ok: true, displayName: requestRow.display_name, token };
     }
     if (requestRow.request_type === "troca_token" && decision === "Aprovado") {
       const account = await db(env, "police_users?select=user_id,enabled&normalized_name=eq." + encodeURIComponent(requestRow.normalized_name) + "&limit=1", "GET");
-      if (!account.length || !account[0].enabled) throw fail("Não há conta policial ativa para este pedido de troca.", 404);
-      return issueForOfficer(env, account[0].user_id);
+      if (!account.length) throw fail("Não há conta policial para este pedido de troca.", 404);
+      return issueForOfficer(env, account[0].user_id, true);
     }
     await db(env, "access_requests?id=eq." + encodeURIComponent(id), "PATCH", { status: decision, decided_at: new Date().toISOString() }, "return=minimal");
     return { ok: true };
