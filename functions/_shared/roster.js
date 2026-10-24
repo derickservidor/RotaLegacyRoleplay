@@ -63,8 +63,8 @@ export async function handleRoster(request, env) {
       existing = prior[0];
     }
     const chosenPhoto = photoPath || (existing && existing.photo_path) || "";
-    if (!validPhotoPath(chosenPhoto)) return json(400, { error: "Envie uma foto válida do policial." });
-    const payload = { qra, full_name: fullName, rank, passport, admitted_on: admittedOn, birth_date: birthDate, status, photo_path: chosenPhoto, photo_url: photoUrl(env, chosenPhoto), updated_at: new Date().toISOString() };
+    if (chosenPhoto && !validPhotoPath(chosenPhoto)) return json(400, { error: "A foto enviada não é válida." });
+    const payload = { qra, full_name: fullName, rank, passport, admitted_on: admittedOn, birth_date: birthDate, status, photo_path: chosenPhoto, photo_url: chosenPhoto ? photoUrl(env, chosenPhoto) : "", updated_at: new Date().toISOString() };
     const endpoint = id ? "/rest/v1/rota_roster?id=eq." + encodeURIComponent(id) : "/rest/v1/rota_roster";
     const rows = await supabase(env, endpoint, { method: id ? "PATCH" : "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(payload) });
     if (!Array.isArray(rows) || !rows.length) throw fail("O efetivo não foi salvo.", 500);
