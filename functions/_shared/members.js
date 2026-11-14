@@ -5,6 +5,7 @@ import { outranks, rosterRank } from "./auth.js";
 import { rankLevel } from "./permissions.js";
 import { configuration } from "./supabase.js";
 import { callSupabase, db, normalizeName, revokeSessions } from "./police-access.js";
+import { stripMappedRoles } from "./discord.js";
 
 const encoder = new TextEncoder();
 const LOCK_MINUTES = 15, MAX_FAILURES = 5, MAX_FAILURES_PER_IP = 25;
@@ -103,7 +104,7 @@ export async function verifyActor(env, request, actor, input, action) {
 // ---------- ações sobre contas ----------
 async function loadTarget(env, userId) {
   if (!/^[0-9a-f-]{36}$/i.test(userId)) throw fail(400, "Conta inválida.");
-  const rows = await db(env, "police_users?select=user_id,display_name,normalized_name,login_id,login_email,roster_id,enabled,removed_at,role&user_id=eq." + encodeURIComponent(userId) + "&limit=1", "GET");
+  const rows = await db(env, "police_users?select=user_id,display_name,normalized_name,login_id,login_email,roster_id,enabled,removed_at,role,discord_id&user_id=eq." + encodeURIComponent(userId) + "&limit=1", "GET");
   if (!rows.length) throw fail(404, "Conta não encontrada.");
   return rows[0];
 }
@@ -127,6 +128,7 @@ export async function setOwnLoginId(env, member, input) {
 export async function editAccount(env, actor, actorName, input) {
   const target = await loadTarget(env, clean(input.userId, 36));
   if (target.removed_at) throw fail(409, "Esta conta foi removida da corporação.");
+  if (target.discord_id) throw fail(409, "Esta conta é gerenciada pelo Discord: o nome e o ID vêm do apelido no servidor. Corrija o apelido lá.");
   await assertOutranksTarget(env, actor, target);
   const change = {}, before = { loginId: target.login_id || "", name: target.display_name || "" };
   if (input.loginId !== undefined && String(input.loginId).trim() !== String(target.login_id || "")) {
@@ -195,9 +197,10 @@ export async function removeMember(env, request, actor, input) {
   if (target.roster_id) await db(env, "rota_roster?id=eq." + encodeURIComponent(target.roster_id), "PATCH", { status: "Inativo", updated_at: now }, "return=minimal").catch(() => {});
   await db(env, "rota_user_tags?user_id=eq." + encodeURIComponent(target.user_id), "DELETE", undefined, "return=minimal").catch(() => {});
   await db(env, "rota_user_permissions?user_id=eq." + encodeURIComponent(target.user_id), "DELETE", undefined, "return=minimal").catch(() => {});
+  if (target.discord_id) await stripMappedRoles(env, target.discord_id).catch(() => {});
   await audit(env, { action: "remover", result: "concluida", target_user: target.user_id, target_login_id: target.login_id || "", target_name: target.display_name || "", reason: REMOVAL_KINDS[kind] + ": " + reason, actor_login_id: who.loginId, actor_name: who.name });
   if (toBlacklist) {
-    await blacklistInsert(env, { character_name: target.display_name || "Integrante removido", player_id: target.login_id, reason: blacklistReason, user_id: target.user_id, created_by: actor.id || null, created_by_name: who.name, created_by_login: who.loginId, photo_path: "", photo_url: "" }).catch((error) => { if (error.status !== 409) throw error; });
+    await blacklistInsert(env, { character_name: target.display_name || "Integrante removido", player_id: target.login_id, discord_id: target.discord_id || "", reason: blacklistReason, user_id: target.user_id, created_by: actor.id || null, created_by_name: who.name, created_by_login: who.loginId, photo_path: "", photo_url: "" }).catch((error) => { if (error.status !== 409) throw error; });
     await audit(env, { action: "blacklist-incluir", result: "concluida", target_user: target.user_id, target_login_id: target.login_id, target_name: target.display_name || "", reason: blacklistReason, actor_login_id: who.loginId, actor_name: who.name });
   }
   return { ok: true, blacklisted: toBlacklist };

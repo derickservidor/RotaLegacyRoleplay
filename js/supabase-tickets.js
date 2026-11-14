@@ -222,6 +222,20 @@
       return false;
     }
   }
+  // Volta do login pelo Discord: troca o código de uso único pela sessão (fica lembrada no aparelho).
+  async function discordHandoff(code) {
+    var body = await functionCall("discord-handoff", { code: String(code || "") });
+    var session = body.session;
+    if (!session || !session.access_token || !(await policeMembership(session))) throw new Error("Não foi possível entrar com o Discord.");
+    session.expires_at = Date.now() + (Number(session.expires_in) || 3600) * 1000;
+    try { localStorage.setItem(REMEMBER_KEY, "1"); } catch (_) {}
+    adminToken = ""; sessionStorage.removeItem(ADMIN_KEY);
+    saveSession(session);
+    passwordPending = false; loginIdPending = false;
+    await loadProfile();
+    return session;
+  }
+  async function discordLinkUrl() { await freshToken(); var r = await fetch("/api/discord/login", { method: "POST", headers: { Authorization: "Bearer " + officerToken() } }); return responseData(r); }
   async function signIn(loginId, token, remember, legacyName) {
     try { if (remember) localStorage.setItem(REMEMBER_KEY, "1"); else localStorage.removeItem(REMEMBER_KEY); } catch (_) {}
     if (!isConfigured()) throw new Error("Configure a URL e a chave publishable em js/supabase-config.js e publique as funções do portal.");
@@ -386,6 +400,7 @@
     var response = await fetch("/api/avatar", { method: "POST", headers: headers, body: form });
     return responseData(response);
   }
+  async function discordAdmin(action, values) { return protectedRequest("/api/discord/admin", "POST", Object.assign({ action: action }, values || {})); }
   async function removeAvatar(userId, reason) { return protectedRequest("/api/avatar", "DELETE", { userId: userId, reason: reason || "" }); }
   async function protectedRequest(endpoint, method, payload) {
     if (!isAdmin()) await freshToken();
@@ -492,6 +507,9 @@
     heartbeat: heartbeat,
     uploadAvatar: uploadAvatar,
     removeAvatar: removeAvatar,
+    discordAdmin: discordAdmin,
+    discordHandoff: discordHandoff,
+    discordLinkUrl: discordLinkUrl,
     setPassword: setPassword,
     receptionCall: receptionCall,
     onReception: onReception,

@@ -2,6 +2,7 @@ import { clean, encodeBase64Url, fail, json, originError } from "./http.js";
 import { allowedAreas, areaRules, assertNotSuspended, outranks, requireAccount, requireAdmin, requireStaff, rosterRank, signAdmin } from "./auth.js";
 import { ADMIN_LEVEL, ALL_PERMISSIONS, AREAS, PERMISSIONS, RANKS, rankLevel, validPermissions } from "./permissions.js";
 import { identitiesByIds, identitiesFor } from "./identity.js";
+import { redeemHandoff } from "./discord-auth.js";
 import { BLACKLIST_MESSAGE, activeBlacklist, assertNotLocked, cleanLoginId, editAccount, recordAttempt, removeMember, setOwnLoginId } from "./members.js";
 const MAX_BODY_BYTES = 16000;
 const SESSION_SECONDS = 8 * 60 * 60;
@@ -179,7 +180,7 @@ async function dashboard(env, actor) {
   const issues = [];
   const [requests, officers, logins, boTickets, ouvidoriaTickets, applications, arrests, blacklist, roster] = await Promise.all([
     dashboardRows(env, "solicitações de acesso", "access_requests?select=id,display_name,normalized_name,request_type,status,created_at&order=created_at.desc&limit=150", issues),
-    dashboardRows(env, "contas policiais", "police_users?select=user_id,display_name,normalized_name,role,enabled,created_at,roster_id,suspended_until,suspension_reason,suspended_by,login_id,removed_at,removed_by,removal_kind,removal_reason,photo_url&order=display_name.asc&limit=1000", issues),
+    dashboardRows(env, "contas policiais", "police_users?select=user_id,display_name,normalized_name,role,enabled,created_at,roster_id,suspended_until,suspension_reason,suspended_by,login_id,removed_at,removed_by,removal_kind,removal_reason,photo_url,discord_id,discord_username,discord_left_at&order=display_name.asc&limit=1000", issues),
     dashboardRows(env, "histórico de acesso", "login_events?select=id,user_id,display_name,role,logged_at&order=logged_at.desc&limit=40", issues),
     dashboardRows(env, "B.O.", "bo_tickets?select=id,public_id,player,legacy_name,category,status,created_at&order=created_at.desc&limit=100", issues),
     dashboardRows(env, "Ouvidoria", "ouvidoria_tickets?select=id,public_id,player,legacy_name,category,status,created_at&order=created_at.desc&limit=100", issues),
@@ -341,7 +342,7 @@ async function myProfile(env, actor) {
     const rows = await db(env, "rota_roster?select=id,qra,full_name,rank,passport,status,photo_url&id=eq." + encodeURIComponent(actor.rosterId) + "&limit=1", "GET").catch(() => []);
     if (Array.isArray(rows) && rows.length) roster = { id: rows[0].id, qra: rows[0].qra, fullName: rows[0].full_name, rank: rows[0].rank, passport: rows[0].passport, status: rows[0].status, photoUrl: rows[0].photo_url || "" };
   }
-  return { identity: (await identitiesByIds(env, [actor.id]))[actor.id] || null, role: actor.role, mustSetPassword: actor.mustSetPassword, mustSetLoginId: !actor.loginId, loginId: actor.loginId, name: actor.name, permissions: actor.permissions, direct: actor.direct, tags: actor.tags.map((t) => ({ id: t.id, name: t.name })), roster, rank: actor.rank || "Recruta", level: actor.level, areas: allowedAreas(actor, rules) };
+  return { identity: (await identitiesByIds(env, [actor.id]))[actor.id] || null, discordUsername: actor.discordUsername || "", role: actor.role, mustSetPassword: actor.mustSetPassword, mustSetLoginId: !actor.loginId, loginId: actor.loginId, name: actor.name, permissions: actor.permissions, direct: actor.direct, tags: actor.tags.map((t) => ({ id: t.id, name: t.name })), roster, rank: actor.rank || "Recruta", level: actor.level, areas: allowedAreas(actor, rules) };
 }
 
 // Quem edita ou apaga uma tag precisa estar acima de todos que a usam.
@@ -402,11 +403,15 @@ async function tagAssign(env, actor, actorName, input, grant) {
   const tagId = clean(input.tagId, 40), userId = clean(input.userId, 80);
   const [tags, users] = await Promise.all([
     db(env, "rota_tags?select=id,name,permissions&id=eq." + encodeURIComponent(tagId) + "&limit=1", "GET"),
-    db(env, "police_users?select=user_id,display_name&user_id=eq." + encodeURIComponent(userId) + "&limit=1", "GET")
+    db(env, "police_users?select=user_id,display_name,discord_id&user_id=eq." + encodeURIComponent(userId) + "&limit=1", "GET")
   ]);
   if (!tags.length) throw fail(404, "Tag não encontrada.");
   if (!users.length) throw fail(404, "Integrante não encontrado.");
   if (!canHandle(actor, validPermissions(tags[0].permissions))) throw fail(403, "Você só pode " + (grant ? "dar" : "tirar") + " tags cujas permissões você mesmo tem.");
+  if (users[0].discord_id) {
+    const mapped = await db(env, "rota_discord_roles?select=role_id&kind=eq.tag&value=eq." + encodeURIComponent(tagId) + "&limit=1", "GET").catch(() => []);
+    if (mapped.length) throw fail(409, "Esta conta é gerenciada pelo Discord: esta tag segue um cargo do servidor. Dê ou tire o cargo lá.");
+  }
   await assertOutranks(env, actor, userId);
   if (grant) await db(env, "rota_user_tags", "POST", { user_id: userId, tag_id: tagId, granted_by: actorName }, "resolution=ignore-duplicates,return=minimal");
   else await db(env, "rota_user_tags?user_id=eq." + encodeURIComponent(userId) + "&tag_id=eq." + encodeURIComponent(tagId), "DELETE", undefined, "return=minimal");
@@ -418,6 +423,8 @@ async function officerLink(env, actor, actorName, input) {
   const userId = clean(input.userId, 80), rosterId = clean(input.rosterId, 36);
   if (!userId) throw fail(400, "Conta inválida.");
   if (rosterId && !/^[0-9a-f-]{36}$/i.test(rosterId)) throw fail(400, "Ficha do efetivo inválida.");
+  const linkedDiscord = await db(env, "police_users?select=discord_id&user_id=eq." + encodeURIComponent(userId) + "&limit=1", "GET").catch(() => []);
+  if (linkedDiscord[0] && linkedDiscord[0].discord_id) throw fail(409, "Esta conta é gerenciada pelo Discord: a ficha e a patente seguem os cargos do servidor.");
   await assertOutranks(env, actor, userId);
   if (rosterId && !outranks(actor, rankLevel(await rosterRank(env, rosterId)))) throw fail(403, "Você só pode vincular fichas de patente menor que a sua.");
   try {
@@ -465,7 +472,7 @@ async function handleAdmin(request, env, input) {
   if (input.action === "my-profile") {
     if (!request.headers.get("x-rota-admin-session")) {
       const member = await requireAccount(request, env);
-      if (member.role !== "policial" || !member.roster_id || member.must_set_password !== false) return { identity: (await identitiesByIds(env, [member.user_id]))[member.user_id] || null, role: member.role === "policial" && !member.roster_id ? "visitante" : member.role, mustSetPassword: member.must_set_password !== false, mustSetLoginId: !member.login_id, loginId: member.login_id || "", name: member.display_name || "", permissions: [], tags: [], roster: null, rank: "", level: -1, areas: [] };
+      if (member.role !== "policial" || !member.roster_id || member.must_set_password !== false) return { identity: (await identitiesByIds(env, [member.user_id]))[member.user_id] || null, role: member.role === "policial" && !member.roster_id ? "visitante" : member.role, mustSetPassword: member.must_set_password !== false, discordUsername: member.discord_id ? member.discord_username || "Discord" : "", mustSetLoginId: !member.login_id, loginId: member.login_id || "", name: member.display_name || "", permissions: [], tags: [], roster: null, rank: "", level: -1, areas: [] };
     }
     return myProfile(env, await requireStaff(request, env));
   }
@@ -547,6 +554,7 @@ export async function handlePoliceAccess(request, env) {
     let result;
     if (input.action === "request-reset") result = await createAccessRequest(env, input, "troca_token");
     else if (input.action === "officer-login") result = await officerLogin(env, input, request);
+    else if (input.action === "discord-handoff") result = await redeemHandoff(env, input);
     else if (input.action === "admin-login") result = await adminLogin(env, input, request);
     else result = await handleAdmin(request, env, input);
     return json(200, result || { ok: true });

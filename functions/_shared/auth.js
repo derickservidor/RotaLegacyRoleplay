@@ -42,14 +42,18 @@ export async function requireAccount(request, env) {
   const userResponse = await fetch(cfg.url + "/auth/v1/user", { headers: { apikey: cfg.publicKey, Authorization: "Bearer " + token } });
   const user = await userResponse.json().catch(() => ({}));
   if (!userResponse.ok || !user.id) throw Object.assign(new Error("Sessão inválida ou expirada."), { status: 401 });
-  const members = await supabase(env, "/rest/v1/police_users?select=user_id,display_name,normalized_name,role,enabled,roster_id,suspended_until,suspension_reason,last_seen_at,must_set_password,login_id,removed_at,login_email&user_id=eq." + encodeURIComponent(user.id) + "&enabled=eq.true&limit=1", { method: "GET" });
+  const members = await supabase(env, "/rest/v1/police_users?select=user_id,display_name,normalized_name,role,enabled,roster_id,suspended_until,suspension_reason,last_seen_at,must_set_password,login_id,removed_at,login_email,discord_id,discord_username&user_id=eq." + encodeURIComponent(user.id) + "&enabled=eq.true&limit=1", { method: "GET" });
   if (!Array.isArray(members) || !members.length) throw Object.assign(new Error("Esta conta não está autorizada para acessar este recurso."), { status: 403 });
   assertNotSuspended(members[0]);
   if (members[0].removed_at) throw Object.assign(new Error("Esta conta foi removida da corporação."), { status: 403 });
   // ID na Blacklist: nenhuma sessão vale, nem a que já estava aberta.
-  if (members[0].login_id) {
-    const blocked = await supabase(env, "/rest/v1/rota_blacklist?select=id&is_active=eq.true&player_id=eq." + encodeURIComponent(members[0].login_id) + "&limit=1", { method: "GET" }).catch(() => []);
-    if (Array.isArray(blocked) && blocked.length) throw Object.assign(new Error("Este ID está na Blacklist da ROTA: o acesso ao portal está bloqueado."), { status: 403 });
+  // ID ou conta do Discord na Blacklist: nenhuma sessão vale, nem a que já estava aberta.
+  const keys = [];
+  if (members[0].login_id) keys.push("player_id.eq." + encodeURIComponent(members[0].login_id));
+  if (members[0].discord_id) keys.push("discord_id.eq." + encodeURIComponent(members[0].discord_id));
+  if (keys.length) {
+    const blocked = await supabase(env, "/rest/v1/rota_blacklist?select=id&is_active=eq.true&or=(" + keys.join(",") + ")&limit=1", { method: "GET" }).catch(() => []);
+    if (Array.isArray(blocked) && blocked.length) throw Object.assign(new Error("Você está na Blacklist da ROTA: o acesso ao portal está bloqueado."), { status: 403 });
   }
   return members[0];
 }
@@ -65,7 +69,7 @@ export async function requireStaff(request, env) {
   await touchPresence(env, member);
   const [tags, direct, rank] = await Promise.all([officerTags(env, member.user_id), directPermissions(env, member.user_id), rosterRank(env, member.roster_id)]);
   const permissions = [...new Set(tags.flatMap((tag) => tag.permissions).concat(direct))];
-  return { id: member.user_id, role: member.role, name: member.display_name || "", mustSetPassword: member.must_set_password !== false, loginId: member.login_id || "", rosterId: member.roster_id, rank, level: rankLevel(rank), permissions, tags, direct };
+  return { id: member.user_id, role: member.role, name: member.display_name || "", mustSetPassword: member.must_set_password !== false, loginId: member.login_id || "", discordUsername: member.discord_id ? member.discord_username || "Discord" : "", rosterId: member.roster_id, rank, level: rankLevel(rank), permissions, tags, direct };
 }
 
 // Presença do policial (lista "No balcão" da recepção): grava no máximo a cada 30 s.
@@ -90,7 +94,7 @@ export async function rosterRank(env, rosterId) {
   return Array.isArray(rows) && rows.length ? rows[0].rank : "";
 }
 
-async function directPermissions(env, userId) {
+export async function directPermissions(env, userId) {
   try {
     const rows = await supabase(env, "/rest/v1/rota_user_permissions?select=permission&user_id=eq." + encodeURIComponent(userId), { method: "GET" });
     return validPermissions((Array.isArray(rows) ? rows : []).map((row) => row.permission));

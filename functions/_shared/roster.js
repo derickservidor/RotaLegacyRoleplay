@@ -52,6 +52,10 @@ export async function handleRoster(request, env) {
     }
     if (!RANKS.includes(rank)) return json(400, { error: "Escolha uma patente da lista." });
     const rankChanged = existing ? existing.rank !== rank : rank !== "Recruta";
+    if (existing && rankChanged) {
+      const owner = await supabase(env, "/rest/v1/police_users?select=discord_id&roster_id=eq." + encodeURIComponent(existing.id) + "&discord_id=not.is.null&limit=1", { method: "GET" }).catch(() => []);
+      if (Array.isArray(owner) && owner.length) return json(409, { error: "Esta conta é gerenciada pelo Discord: a patente segue o cargo no servidor. Mude o cargo lá." });
+    }
     if (rankChanged && staff.role !== "admin") {
       if (!staff.permissions.includes("patentes.promover")) return json(403, { error: existing ? "Mudar a patente exige o poder de promover e rebaixar." : "Cadastrar com patente exige o poder de promover e rebaixar." });
       if (existing && !outranks(staff, rankLevel(existing.rank))) return json(403, { error: "Você só pode mudar a patente de quem está abaixo de você." });

@@ -41,6 +41,13 @@ A pasta `dist/` é gerada pelo build e não fica no repositório (está no `.git
 
    Para a **identidade dos integrantes** (`[Patente] Nome [ID]` com foto e cor do nome por segmento), execute `supabase/identidade.sql` depois do `integrantes.sql`. As cores ficam em `rota_tags.name_color`/`color_priority` (Comando, Corregedoria, Recrutador) e há o gancho `rota_ranks.name_color` para cores por patente no futuro. As fotos ficam no bucket público `rota-avatars`; sem foto, o site usa a logo da ROTA.
 
+   Para o **Discord** (login pelo Discord, patente/nome/ID vindos do servidor, bot `/apreensao` e `/relatorio` e relatório mensal), execute `supabase/discord.sql` depois do `identidade.sql` e configure:
+   - Variáveis no Cloudflare Pages: `DISCORD_APPLICATION_ID`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN` (segredo), `DISCORD_CLIENT_SECRET` (segredo), `DISCORD_GUILD_ID` (ID do servidor) e `ROTA_CRON_SECRET` (segredo, 32+ caracteres).
+   - No portal do Discord (OAuth2 → Redirects): `https://SEU-SITE/api/discord/callback`. Em General Information → Interactions Endpoint URL: `https://SEU-SITE/api/discord/interactions`.
+   - Comandos do bot: registrados no servidor de `DISCORD_GUILD_ID` (`PUT /applications/{id}/guilds/{guild}/commands` com `apreensao` e `relatorio`).
+   - Agendamento: a pasta `worker-cron/` é um Worker com cron a cada 10 minutos (`npx wrangler deploy` dentro dela e `npx wrangler secret put ROTA_CRON_SECRET` com o mesmo valor do Pages).
+   - O apelido no servidor deve seguir `[SIGLA] Nome [ID]`; os cargos são mapeados para patentes e tags em Administração → Discord. Como o Discord manda, só o comando deve poder gerenciar cargos e apelidos no servidor.
+
    Para **Comunicados** e **Editais**, execute `supabase/public-content.sql`. A administração publica e remove os dois pelo **Painel policial** (botões "Publicar comunicado" e "Publicar edital"), sem precisar editar o código. As inscrições só são aceitas para editais publicados e dentro do período de inscrição.
 
    Ao atualizar o portal, execute de novo o `supabase/schema.sql`: ele pode ser reexecutado com segurança e aplica as proteções novas (decisão única de tickets, limite de pedidos e bloqueio de tentativas de login administrativo).

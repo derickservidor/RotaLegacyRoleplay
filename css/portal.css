@@ -1307,3 +1307,30 @@ body:has(#nav.open) .team-tab{display:none}
 .photo-remind p{margin:0 0 8px;color:var(--texto)}
 .photo-remind-logo{width:72px;height:auto}
 @media (max-width:600px){.photo-edit,.photo-remind{grid-template-columns:1fr}.photo-preview{width:112px;height:112px}}
+
+/* ================= aba Discord ================= */
+.discord-admin{display:grid;gap:16px;padding:16px}
+.discord-head{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:end;padding:14px 16px;border:1px solid var(--friso);border-radius:var(--r-m);background:var(--asfalto)}
+.discord-head div{display:grid;gap:2px;min-width:0}
+.discord-head small{color:var(--nevoa);font-size:12px}
+.discord-head b{color:var(--faixa);font-size:16px;overflow-wrap:anywhere}
+.discord-head button{margin-left:auto}
+.discord-channel{display:grid;gap:6px;max-width:360px;font-weight:600;color:var(--faixa)}
+.discord-roles th[scope=row]{color:var(--faixa);font-weight:600}
+.discord-roles select{min-width:200px}
+.discord-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;vertical-align:middle}
+.discord-conflicts{margin:0;padding:10px 14px 10px 30px;border:1px solid rgba(240,145,58,.5);border-radius:var(--r-s);color:var(--pendente)}
+.discord-managed{display:flex;gap:8px;align-items:center;color:var(--texto)}
+.discord-managed .icon{width:16px;height:16px;flex:0 0 auto}
+@media (max-width:600px){.discord-head button{margin-left:0;width:100%}.discord-roles select{min-width:0;width:100%}}
+
+/* ================= login pelo Discord ================= */
+.discord-login{display:flex;align-items:center;justify-content:center;gap:10px;min-height:48px;padding:10px 16px;border-radius:var(--r-s);background:#5865F2;color:#fff;font-weight:700;text-decoration:none;border:1px solid #6d78f5}
+.discord-login:hover{background:#4752c4}
+.discord-login:focus-visible{outline:2px solid var(--demarcacao);outline-offset:2px}
+.discord-mark{width:20px;height:20px;flex:0 0 auto}
+.access-or{display:flex;align-items:center;gap:10px;margin:16px 0 4px;color:var(--nevoa);font-size:13px}
+.access-or::before,.access-or::after{content:"";flex:1;height:1px;background:var(--friso)}
+.discord-link-box{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid var(--friso);border-radius:var(--r-s);background:var(--asfalto);color:var(--texto)}
+.discord-link-box span{display:flex;gap:8px;align-items:center}
+.discord-link-box .discord-mark{color:#8b95f7}
