@@ -1,5 +1,5 @@
 // Equipe: todas as contas ativas do portal com patente, ID e presença (online ou visto por último). Consulta pública.
-import { json } from "./http.js";
+import { json, publicMessage } from "./http.js";
 import { supabase } from "./supabase.js";
 import { rankLevel } from "./permissions.js";
 import { identitiesFor } from "./identity.js";
@@ -19,6 +19,6 @@ export async function handleTeam(request, env) {
     }).sort((a, b) => (b.online - a.online) || ((b.role === "integrante") - (a.role === "integrante")) || (rankLevel(b.rank) - rankLevel(a.rank)) || a.name.localeCompare(b.name, "pt-BR"));
     return json(200, { rows, serverTime: new Date(now).toISOString() });
   } catch (error) {
-    return json(error.status || 500, { error: error.message || "Erro inesperado." });
+    return json(error.status || 500, { error: publicMessage(error) });
   }
 }

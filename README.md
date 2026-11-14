@@ -22,7 +22,7 @@ A pasta `dist/` é gerada pelo build e não fica no repositório (está no `.git
 
 ## Configurar o Supabase
 
-1. No Supabase, abra **SQL Editor** e execute todo o arquivo `supabase/schema.sql`.
+1. No Supabase, abra **SQL Editor** e execute todo o arquivo `supabase/schema.sql`. Ele cria os tickets e a base da área policial; blacklist, apreensões e inscrições de edital ficam só nos próprios arquivos (`blacklist.sql`, `arrests.sql` e `edital-applications.sql`), listados abaixo.
 2. Para habilitar a consulta pública e as fotos da blacklist, execute também `supabase/blacklist.sql` no SQL Editor. Esse script cria/atualiza a tabela, concede leitura pública somente dos campos exibidos e cria o bucket público das imagens. Cidadãos e policiais podem consultar; incluir e retirar exigem o poder Blacklist, o ID e a senha de quem faz e uma confirmação final.
 3. Cada registro público exibe a foto do personagem, nome e Passaporte Legacy. Cadastre somente personagens e fatos fictícios do roleplay. As fotos ficam acessíveis publicamente no bucket `rota-blacklist-photos`.
 4. Para o livro compartilhado de prisões e as fotos de apreensão, execute (ou execute novamente) `supabase/arrests.sql` antes de publicar. O script atualiza as colunas de armas e imagens e cria o bucket privado `rota-arrest-photos`; listar, registrar, anexar imagens e remover exigem uma conta policial autorizada. As fotos recebem links temporários e só aparecem na área policial.
@@ -47,6 +47,8 @@ A pasta `dist/` é gerada pelo build e não fica no repositório (está no `.git
    - Comandos do bot: registrados no servidor de `DISCORD_GUILD_ID` (`PUT /applications/{id}/guilds/{guild}/commands` com `apreensao` e `relatorio`).
    - Agendamento: a pasta `worker-cron/` é um Worker com cron a cada 10 minutos (`npx wrangler deploy` dentro dela e `npx wrangler secret put ROTA_CRON_SECRET` com o mesmo valor do Pages).
    - O apelido no servidor deve seguir `[SIGLA] Nome [ID]`; os cargos são mapeados para patentes e tags em Administração → Discord. Como o Discord manda, só o comando deve poder gerenciar cargos e apelidos no servidor.
+
+   Para que **ficha Inativa e conta removida percam o acesso também no banco**, execute `supabase/manutencao.sql` depois do `discord.sql`. Com a ficha do efetivo Inativa, a conta passa a ver só o portal público até o comando reativar a ficha.
 
    Para **Comunicados** e **Editais**, execute `supabase/public-content.sql`. A administração publica e remove os dois pelo **Painel policial** (botões "Publicar comunicado" e "Publicar edital"), sem precisar editar o código. As inscrições só são aceitas para editais publicados e dentro do período de inscrição.
 

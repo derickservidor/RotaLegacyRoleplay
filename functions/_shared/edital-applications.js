@@ -1,5 +1,5 @@
 import { findEdital } from "./content.js";
-import { clean, fail, json, originError } from "./http.js";
+import { clean, fail, json, originError, publicMessage, technical } from "./http.js";
 const MAX_BODY_BYTES = 24000;
 const encoder = new TextEncoder();
 
@@ -26,7 +26,7 @@ async function callSupabase(env, path, payload) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = body.message || body.msg || body.error_description || body.error || "Falha ao salvar a inscrição.";
-    throw fail(response.status >= 500 ? 503 : response.status, message);
+    throw technical(response.status >= 500 ? 503 : response.status, message, path.split("?")[0] + ": " + message);
   }
   return body;
 }
@@ -108,6 +108,6 @@ export async function handleEditalApplication(request, env) {
     if (result && result.allowed === false) return json(429, { error: remainingMessage(result), availableAt: result.availableAt, remainingSeconds: result.remainingSeconds || 0 });
     return json(201, { ok: true, id: result.id, createdAt: result.createdAt, availableAt: result.availableAt });
   } catch (error) {
-    return json(error.status || 500, { error: error.message || "Erro inesperado." });
+    return json(error.status || 500, { error: publicMessage(error) });
   }
 }

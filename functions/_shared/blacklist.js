@@ -1,4 +1,4 @@
-import { clean, json, originError } from "./http.js";
+import { clean, json, originError, publicMessage, technical } from "./http.js";
 import { outranks, requirePermission, rosterRank } from "./auth.js";
 import { rankLevel } from "./permissions.js";
 import { configuration, supabase } from "./supabase.js";
@@ -76,7 +76,7 @@ export async function handleBlacklist(request, env) {
     return json(200, { ok: true });
   } catch (error) {
     const status = Number.isInteger(error.status) ? error.status : (/variáveis Supabase/.test(error.message || "") ? 503 : 500);
-    return json(status, { error: error.message || "Erro inesperado." });
+    return json(status, { error: publicMessage(error) });
   }
 }
 export async function handleBlacklistPhoto(request, env) {
@@ -106,11 +106,11 @@ export async function handleBlacklistPhoto(request, env) {
     });
     if (!response.ok) {
       const problem = await response.json().catch(() => ({}));
-      throw Object.assign(new Error(problem.message || problem.error || "Não foi possível salvar a foto no Supabase Storage."), { status: response.status });
+      throw technical(response.status, "Não foi possível salvar a foto.", "storage: " + (problem.message || problem.error || ""));
     }
     return json(201, { photoPath, photoUrl: cfg.url + "/storage/v1/object/public/" + PHOTO_BUCKET + "/" + photoPath });
   } catch (error) {
     const status = Number.isInteger(error.status) ? error.status : (/variáveis Supabase/.test(error.message || "") ? 503 : 500);
-    return json(status, { error: error.message || "Não foi possível enviar a foto." });
+    return json(status, { error: publicMessage(error) });
   }
 }

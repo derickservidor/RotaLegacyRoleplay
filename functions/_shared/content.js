@@ -1,4 +1,4 @@
-import { clean, json, originError } from "./http.js";
+import { clean, json, originError, publicMessage } from "./http.js";
 import { requirePermission } from "./auth.js";
 import { supabase } from "./supabase.js";
 const encoder = new TextEncoder();
@@ -71,6 +71,6 @@ export async function handleContent(request, env) {
     if (!Array.isArray(rows) || !rows.length) return json(404, { error: "Registro não encontrado ou já removido." });
     return json(200, { ok: true });
   } catch (error) {
-    return json(error.status || 500, { error: error.message || "Erro inesperado." });
+    return json(error.status || 500, { error: publicMessage(error) });
   }
 }

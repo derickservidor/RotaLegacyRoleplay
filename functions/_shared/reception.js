@@ -1,6 +1,6 @@
 // Recepção da delegacia: sala de espera pública, fila por ordem de chegada e atendimento por quem tem o poder Acessos.
 // O solicitante guarda um bilhete secreto (só o hash fica no banco). O token de login só é gerado na retirada.
-import { clean, encodeBase64Url, fail, json, originError } from "./http.js";
+import { clean, encodeBase64Url, fail, json, originError, publicMessage } from "./http.js";
 import { requireAccount, requireStaff } from "./auth.js";
 import { RANKS, rankLevel, validPermissions } from "./permissions.js";
 import { callSupabase, db, logTag, normalizeName, randomToken, syntheticEmail } from "./police-access.js";
@@ -345,6 +345,6 @@ export async function handleReception(request, env) {
     if (action === "release") return json(200, await release(env, actor, input));
     return json(200, await decide(env, actor, input));
   } catch (error) {
-    return json(error.status || 500, { error: error.message || "Erro inesperado." });
+    return json(error.status || 500, { error: publicMessage(error) });
   }
 }

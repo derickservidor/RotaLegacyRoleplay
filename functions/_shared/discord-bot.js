@@ -1,7 +1,7 @@
 // Bot do Discord por HTTP (interações): /apreensao registra uma apreensão no site; /relatorio resume o mês.
 // Toda requisição precisa da assinatura Ed25519 do Discord (DISCORD_PUBLIC_KEY).
-import { clean } from "./http.js";
-import { assertNotSuspended, checkArea, directPermissions, officerTags, rosterRank } from "./auth.js";
+import { clean, publicMessage } from "./http.js";
+import { INACTIVE_MESSAGE, assertNotSuspended, checkArea, directPermissions, officerTags, rosterInfo } from "./auth.js";
 import { rankLevel } from "./permissions.js";
 import { db } from "./police-access.js";
 import { GTA_WEAPONS } from "./weapons.js";
@@ -35,10 +35,12 @@ async function actorFromDiscord(env, discordId) {
     const blocked = await db(env, "rota_blacklist?select=id&is_active=eq.true&or=(player_id.eq." + encodeURIComponent(member.login_id) + ",discord_id.eq." + encodeURIComponent(discordId) + ")&limit=1", "GET").catch(() => []);
     if (blocked.length) return { error: "Você está na Blacklist da ROTA." };
   }
-  const [tags, direct, rank] = await Promise.all([officerTags(env, member.user_id), directPermissions(env, member.user_id), rosterRank(env, member.roster_id)]);
+  const [tags, direct, ficha] = await Promise.all([officerTags(env, member.user_id), directPermissions(env, member.user_id), rosterInfo(env, member.roster_id)]);
+  if (ficha.status !== "Ativo") return { error: INACTIVE_MESSAGE };
+  const rank = ficha.rank;
   return { actor: { id: member.user_id, role: "policial", name: member.display_name || "", loginId: member.login_id || "", rank, level: rankLevel(rank), permissions: [...new Set(tags.flatMap((t) => t.permissions).concat(direct))] } };
 }
-async function allowed(env, actor, area) { try { await checkArea(env, actor, area); return null; } catch (error) { return error.message; } }
+async function allowed(env, actor, area) { try { await checkArea(env, actor, area); return null; } catch (error) { return publicMessage(error); } }
 
 // ---------- /apreensao ----------
 function apreensaoModal() {
@@ -174,6 +176,6 @@ export async function handleInteractions(request, env) {
     }
     return message("Comando desconhecido.");
   } catch (error) {
-    return message("Não foi possível concluir: " + (error.status && error.status < 500 ? error.message : "erro interno, tente de novo."));
+    return message("Não foi possível concluir: " + publicMessage(error));
   }
 }

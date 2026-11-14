@@ -1,6 +1,6 @@
 // Foto do personagem (avatar): a própria conta envia/troca; na recepção vai junto do pedido (pelo bilhete);
 // quem tem o poder Acessos remove a foto de quem está abaixo. Sem foto, o site mostra a logo da ROTA.
-import { clean, fail, json, originError } from "./http.js";
+import { clean, fail, json, originError, publicMessage, technical } from "./http.js";
 import { outranks, requireAccount, requireStaff, rosterRank } from "./auth.js";
 import { rankLevel } from "./permissions.js";
 import { db } from "./police-access.js";
@@ -34,7 +34,7 @@ async function storeImage(env, file) {
   if (!valid) throw fail(400, "O arquivo não parece ser uma imagem válida.");
   const { base, headers } = storage(env), path = crypto.randomUUID() + "." + ext;
   const response = await fetch(base + "/storage/v1/object/" + BUCKET + "/" + path, { method: "POST", headers: { ...headers, "Content-Type": mime, "cache-control": "public, max-age=31536000, immutable", "x-upsert": "false" }, body: bytes });
-  if (!response.ok) { const problem = await response.json().catch(() => ({})); throw fail(response.status, problem.message || problem.error || "Não foi possível salvar a foto."); }
+  if (!response.ok) { const problem = await response.json().catch(() => ({})); throw technical(response.status, "Não foi possível salvar a foto.", "storage: " + (problem.message || problem.error || "")); }
   return { photo_path: path, photo_url: publicUrl(env, path) };
 }
 export async function deleteImage(env, path) {
@@ -81,6 +81,6 @@ export async function handleAvatar(request, env) {
     }
     return json(405, { error: "Método não permitido." });
   } catch (error) {
-    return json(error.status || 500, { error: error.message || "Não foi possível processar a foto." });
+    return json(error.status || 500, { error: publicMessage(error) });
   }
 }

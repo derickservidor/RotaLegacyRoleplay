@@ -8,7 +8,7 @@ const decoder = new TextDecoder();
 
 export async function signAdmin(env, payload) {
   const secret = String(env.ROTA_SESSION_SECRET || "");
-  if (secret.length < 32) throw new Error("Configure ROTA_SESSION_SECRET com pelo menos 32 caracteres.");
+  if (secret.length < 32) throw Object.assign(new Error("Configure ROTA_SESSION_SECRET com pelo menos 32 caracteres."), { status: 503 });
   const data = encodeBase64Url(encoder.encode(JSON.stringify(payload)));
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(data)));
@@ -66,8 +66,10 @@ export async function requireStaff(request, env) {
   // Visitante (ou conta policial ainda sem ficha do efetivo) não entra na área policial.
   if (!isMemberRole(member.role) || !member.roster_id) throw Object.assign(new Error("Conta de visitante: a área policial é só para integrantes da ROTA. Peça ingresso na recepção."), { status: 403, visitor: true });
   if (member.must_set_password !== false) throw Object.assign(new Error("Crie a sua senha antes de usar a área policial."), { status: 403 });
+  const [tags, direct, ficha] = await Promise.all([officerTags(env, member.user_id), directPermissions(env, member.user_id), rosterInfo(env, member.roster_id)]);
+  if (ficha.status !== "Ativo") throw Object.assign(new Error(INACTIVE_MESSAGE), { status: 403, visitor: true, inactive: true });
   await touchPresence(env, member);
-  const [tags, direct, rank] = await Promise.all([officerTags(env, member.user_id), directPermissions(env, member.user_id), rosterRank(env, member.roster_id)]);
+  const rank = ficha.rank;
   const permissions = [...new Set(tags.flatMap((tag) => tag.permissions).concat(direct))];
   return { id: member.user_id, role: member.role, name: member.display_name || "", mustSetPassword: member.must_set_password !== false, loginId: member.login_id || "", discordUsername: member.discord_id ? member.discord_username || "Discord" : "", rosterId: member.roster_id, rank, level: rankLevel(rank), permissions, tags, direct };
 }
@@ -85,6 +87,14 @@ export function suspensionMessage(row) {
 }
 export function assertNotSuspended(row) {
   if (row && row.suspended_until && new Date(row.suspended_until) > new Date()) throw Object.assign(new Error(suspensionMessage(row)), { status: 403 });
+}
+
+// Patente e situação da ficha do efetivo ligada à conta. Ficha Inativa não entra na área policial.
+export const INACTIVE_MESSAGE = "Sua ficha no efetivo está Inativa: a área policial fica bloqueada até o comando reativar a ficha.";
+export async function rosterInfo(env, rosterId) {
+  if (!rosterId) return { rank: "", status: "" };
+  const rows = await supabase(env, "/rest/v1/rota_roster?select=rank,status&id=eq." + encodeURIComponent(rosterId) + "&limit=1", { method: "GET" });
+  return Array.isArray(rows) && rows.length ? { rank: rows[0].rank || "", status: rows[0].status || "" } : { rank: "", status: "" };
 }
 
 // Patente da ficha do efetivo ligada à conta. Sem ficha, a conta conta como Recruta.

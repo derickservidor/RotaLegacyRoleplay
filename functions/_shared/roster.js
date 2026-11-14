@@ -1,4 +1,4 @@
-import { clean, fail, json, originError } from "./http.js";
+import { clean, fail, json, originError, publicMessage, technical } from "./http.js";
 import { outranks, requirePermission } from "./auth.js";
 import { RANKS, rankLevel } from "./permissions.js";
 import { supabase } from "./supabase.js";
@@ -76,7 +76,7 @@ export async function handleRoster(request, env) {
     return json(id ? 200 : 201, { row: toRow(rows[0]) });
   } catch (error) {
     const status = Number.isInteger(error.status) ? error.status : (/variáveis Supabase/.test(error.message || "") ? 503 : 500);
-    return json(status, { error: error.message || "Erro inesperado." });
+    return json(status, { error: publicMessage(error) });
   }
 }
 
@@ -105,11 +105,11 @@ export async function handleRosterPhoto(request, env) {
     const response = await fetch(base + "/storage/v1/object/" + PHOTO_BUCKET + "/" + path, { method: "POST", headers, body: bytes });
     if (!response.ok) {
       const problem = await response.json().catch(() => ({}));
-      throw fail(response.status, problem.message || problem.error || "Não foi possível salvar a foto no Supabase Storage.");
+      throw technical(response.status, "Não foi possível salvar a foto.", "storage: " + (problem.message || problem.error || ""));
     }
     return json(201, { photoPath: path, photoUrl: photoUrl(env, path) });
   } catch (error) {
     const status = Number.isInteger(error.status) ? error.status : (/variáveis Supabase/.test(error.message || "") ? 503 : 500);
-    return json(status, { error: error.message || "Não foi possível enviar a foto." });
+    return json(status, { error: publicMessage(error) });
   }
 }

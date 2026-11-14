@@ -1,4 +1,4 @@
-import { clean, json, originError } from "./http.js";
+import { clean, json, originError, publicMessage } from "./http.js";
 import { checkArea, requireStaff } from "./auth.js";
 import { GTA_WEAPONS } from "./weapons.js";
 const MAX_BODY_BYTES = 12000;
@@ -10,7 +10,7 @@ export async function handleArrestNotify(request, env) {
   const rejectedOrigin = originError(request);
   if (rejectedOrigin) return json(403, { error: rejectedOrigin });
   try { await checkArea(env, await requireStaff(request, env), "prisoes.registrar"); }
-  catch (error) { return json(Number.isInteger(error.status) ? error.status : 401, { error: error.message || "Acesso policial autorizado necessário." }); }
+  catch (error) { return json(Number.isInteger(error.status) ? error.status : 401, { error: publicMessage(error) }); }
   const bodyText = await request.text();
   if (encoder.encode(bodyText).byteLength > MAX_BODY_BYTES) return json(413, { error: "Registro muito grande." });
 
