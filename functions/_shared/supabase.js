@@ -1,3 +1,4 @@
+import { fail, technical, userFacingDbError } from "./http.js";
 // Acesso ao Supabase pelas Functions (chave secreta do servidor ou chave pública).
 
 export function configuration(env, requireServiceKey) {
@@ -14,6 +15,10 @@ export async function supabase(env, endpoint, options, usePublic) {
   if (!headers.Authorization && !/^sb_(?:publishable|secret)_/i.test(key)) headers.Authorization = "Bearer " + key;
   init.headers = headers;
   const response = await fetch(cfg.url + endpoint, init), body = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(body.message || body.msg || body.error_description || body.error || "Falha ao acessar o Supabase."), { status: response.status });
+  if (!response.ok) {
+    const message = body.message || body.msg || body.error_description || body.error || "Falha ao acessar o Supabase.";
+    if (userFacingDbError(body)) throw fail(response.status >= 500 ? 400 : response.status, body.message);
+    throw technical(response.status, message, endpoint.split("?")[0] + ": " + message);
+  }
   return body;
 }

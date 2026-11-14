@@ -30,11 +30,11 @@ export async function identitiesFor(env, people) {
   const rosterIds = list.map((p) => p.roster_id).filter(Boolean);
   const ids = list.map((p) => encodeURIComponent(p.user_id)).join(",");
   const [roster, links, rules] = await Promise.all([
-    rosterIds.length ? rows(env, "rota_roster?select=id,rank&id=in.(" + rosterIds.join(",") + ")") : [],
+    rosterIds.length ? rows(env, "rota_roster?select=id,rank,status&id=in.(" + rosterIds.join(",") + ")") : [],
     rows(env, "rota_user_tags?select=user_id,tag_id&user_id=in.(" + ids + ")"),
     colorRules(env)
   ]);
-  const rankById = Object.fromEntries(roster.map((r) => [r.id, r.rank]));
+  const rankById = Object.fromEntries(roster.filter((r) => r.status === "Ativo").map((r) => [r.id, r.rank]));
   const tagsByUser = {};
   links.forEach((l) => { (tagsByUser[l.user_id] = tagsByUser[l.user_id] || []).push(l.tag_id); });
   const result = {};

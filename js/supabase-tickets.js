@@ -64,7 +64,12 @@
     return result;
   }
   // Só usa mensagens em texto; respostas de erro fora do padrão (ex.: 404 do servidor) viram o texto padrão.
+  // Erros crus do banco/Auth (em inglês, com nomes de tabela) também viram o texto padrão; só passam os avisos escritos no SQL do portal.
   function messageFrom(body, fallback) {
+    if (body && (typeof body.error_code === "string" || (typeof body.code === "string" && /^(?:PGRST|[0-9A-Z]{5}$)/.test(body.code)))) {
+      var own = body.code === "P0001" || (body.code === "23514" && !/^new row|violates|relation /i.test(String(body.message || "")));
+      if (!own) return fallback;
+    }
     var found = [body && body.message, body && body.msg, body && body.error_description, body && body.error].find(function (value) { return typeof value === "string" && value.trim(); });
     return found || fallback;
   }
@@ -500,6 +505,7 @@
     canManage: canManage,
     canArea: canArea,
     isVisitor: isVisitor,
+    isInactive: function () { return !!(profile && profile.inactive); },
     needsPassword: needsPassword,
     needsLoginId: needsLoginId,
     setLoginId: setLoginId,

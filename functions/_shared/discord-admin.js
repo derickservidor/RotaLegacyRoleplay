@@ -1,5 +1,5 @@
 // Aba Discord da administração: mapa cargo → patente/tag/visitante, canal do relatório e sincronização manual.
-import { clean, fail, json, originError } from "./http.js";
+import { clean, fail, json, originError, publicMessage } from "./http.js";
 import { requireStaff } from "./auth.js";
 import { RANKS } from "./permissions.js";
 import { db } from "./police-access.js";
@@ -73,6 +73,6 @@ export async function handleDiscordAdmin(request, env) {
     if (input.action === "sync") return json(200, await syncGuild(env));
     throw fail(400, "Ação desconhecida.");
   } catch (error) {
-    return json(error.status || 500, { error: error.message || "Erro inesperado." });
+    return json(error.status || 500, { error: publicMessage(error) });
   }
 }

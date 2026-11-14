@@ -1,6 +1,6 @@
 // Login pelo Discord (OAuth2) e vínculo de uma conta existente ao Discord.
 // O "state" é assinado (HMAC) e preso ao navegador por um cookie; a sessão chega ao site por um código de uso único.
-import { clean, decodeBase64Url, encodeBase64Url, fail, json } from "./http.js";
+import { clean, decodeBase64Url, encodeBase64Url, fail, json, publicMessage } from "./http.js";
 import { requireAccount } from "./auth.js";
 import { callSupabase, db, randomToken, revokeSessions } from "./police-access.js";
 import { discordConfigured, syncOne } from "./discord.js";
@@ -66,8 +66,8 @@ export async function handleDiscordLogin(request, env) {
     }
     return json(405, { error: "Método não permitido." });
   } catch (error) {
-    if (request.method === "GET") return redirect(siteUrl(request, { discord_erro: error.message || "Falha no login pelo Discord." }));
-    return json(error.status || 500, { error: error.message || "Falha no login pelo Discord." });
+    if (request.method === "GET") return redirect(siteUrl(request, { discord_erro: publicMessage(error) }));
+    return json(error.status || 500, { error: publicMessage(error) });
   }
 }
 
@@ -135,7 +135,7 @@ export async function handleDiscordCallback(request, env) {
     await db(env, "police_users?user_id=eq." + encodeURIComponent(account.user_id), "PATCH", { last_seen_at: new Date().toISOString() }, "return=minimal").catch(() => {});
     return redirect(siteUrl(request, { discord_code: code }), clearCookie);
   } catch (error) {
-    return redirect(siteUrl(request, { discord_erro: error.message || "Falha no login pelo Discord." }), clearCookie);
+    return redirect(siteUrl(request, { discord_erro: publicMessage(error) }), clearCookie);
   }
 }
 

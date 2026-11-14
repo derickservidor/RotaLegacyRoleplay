@@ -1,5 +1,5 @@
-import { clean, encodeBase64Url, fail, json, originError } from "./http.js";
-import { allowedAreas, areaRules, assertNotSuspended, outranks, requireAccount, requireAdmin, requireStaff, rosterRank, signAdmin } from "./auth.js";
+import { clean, encodeBase64Url, fail, json, originError, publicMessage, technical, userFacingDbError } from "./http.js";
+import { allowedAreas, areaRules, assertNotSuspended, outranks, requireAccount, requireAdmin, requireStaff, rosterInfo, rosterRank, signAdmin } from "./auth.js";
 import { ADMIN_LEVEL, ALL_PERMISSIONS, AREAS, PERMISSIONS, RANKS, rankLevel, validPermissions } from "./permissions.js";
 import { identitiesByIds, identitiesFor } from "./identity.js";
 import { redeemHandoff } from "./discord-auth.js";
@@ -28,7 +28,7 @@ function config(env) {
   const serviceKey = String(env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
   const publicKey = String(env.SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_ANON_KEY || "").trim();
   if (!/^(?:https:\/\/|http:\/\/(?:localhost|127\.0\.0\.1)[:/])/i.test(url) || !serviceKey || !publicKey) {
-    throw new Error("O administrador precisa configurar as variáveis Supabase na hospedagem.");
+    throw fail(503, "O administrador precisa configurar as variáveis Supabase na hospedagem.");
   }
   return { url, serviceKey, publicKey };
 }
@@ -43,9 +43,9 @@ export async function callSupabase(env, path, options, usePublicKey) {
   const response = await fetch(cfg.url + path, init);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(body.msg || body.message || body.error_description || body.error || "Falha ao acessar o banco de dados.");
-    error.status = response.status;
-    throw error;
+    const message = body.msg || body.message || body.error_description || body.error || "Falha ao acessar o banco de dados.";
+    if (userFacingDbError(body)) throw fail(response.status >= 500 ? 400 : response.status, body.message);
+    throw technical(response.status, message, path.split("?")[0] + ": " + message);
   }
   return body;
 }
@@ -472,7 +472,8 @@ async function handleAdmin(request, env, input) {
   if (input.action === "my-profile") {
     if (!request.headers.get("x-rota-admin-session")) {
       const member = await requireAccount(request, env);
-      if (member.role !== "policial" || !member.roster_id || member.must_set_password !== false) return { identity: (await identitiesByIds(env, [member.user_id]))[member.user_id] || null, role: member.role === "policial" && !member.roster_id ? "visitante" : member.role, mustSetPassword: member.must_set_password !== false, discordUsername: member.discord_id ? member.discord_username || "Discord" : "", mustSetLoginId: !member.login_id, loginId: member.login_id || "", name: member.display_name || "", permissions: [], tags: [], roster: null, rank: "", level: -1, areas: [] };
+      const inactive = member.role === "policial" && !!member.roster_id && (await rosterInfo(env, member.roster_id)).status !== "Ativo";
+      if (member.role !== "policial" || !member.roster_id || member.must_set_password !== false || inactive) return { inactive, identity: (await identitiesByIds(env, [member.user_id]))[member.user_id] || null, role: member.role === "policial" && (!member.roster_id || inactive) ? "visitante" : member.role, mustSetPassword: member.must_set_password !== false, discordUsername: member.discord_id ? member.discord_username || "Discord" : "", mustSetLoginId: !member.login_id, loginId: member.login_id || "", name: member.display_name || "", permissions: [], tags: [], roster: null, rank: "", level: -1, areas: [] };
     }
     return myProfile(env, await requireStaff(request, env));
   }
@@ -560,6 +561,6 @@ export async function handlePoliceAccess(request, env) {
     return json(200, result || { ok: true });
   } catch (error) {
     const status = error.status || (/variáveis Supabase|ROTA_SESSION_SECRET/.test(error.message || "") ? 503 : 500);
-    return json(status, { error: error.message || "Erro inesperado." });
+    return json(status, { error: publicMessage(error) });
   }
 }
